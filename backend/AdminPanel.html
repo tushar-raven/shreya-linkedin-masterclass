@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html>
+<head>
+<base target="_top">
+<style>
+  :root{--ink:#17233d;--blue:#2457e7;--muted:#606b7a;--line:#e3e4df;--lime:#e8fa79;--cream:#f8f6ef}
+  *{box-sizing:border-box}
+  body{margin:0;font:13px/1.45 'DM Sans',Arial,sans-serif;color:var(--ink);background:var(--cream)}
+  header{background:var(--ink);color:#fff;padding:14px 16px}
+  header b{font-size:15px;display:block}
+  header small{opacity:.75}
+  section{padding:14px 16px;border-bottom:1px solid var(--line)}
+  h3{margin:0 0 10px;font-size:13px}
+  .stats{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+  .stat{background:#fff;border:1px solid var(--line);border-radius:10px;padding:10px}
+  .stat b{font-size:22px;display:block;line-height:1.1}
+  .stat small{color:var(--muted)}
+  .stat.big{grid-column:1/-1;background:var(--blue);color:#fff;border:0}
+  .stat.big small{color:#dbe4ff}
+  .bar{display:flex;align-items:center;gap:8px;margin:5px 0;font-size:12px}
+  .bar span:first-child{flex:0 0 120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .bar i{display:block;height:8px;background:var(--blue);border-radius:4px}
+  .bar em{font-style:normal;color:var(--muted)}
+  label{display:block;font-weight:700;font-size:12px;margin:10px 0 4px}
+  input,select{width:100%;padding:8px 9px;border:1px solid #cfd3db;border-radius:8px;font:inherit;background:#fff}
+  .check{display:flex;gap:8px;align-items:flex-start;font-weight:500;margin-top:10px}
+  .check input{width:auto;margin-top:2px}
+  button{margin-top:12px;width:100%;padding:10px;border:0;border-radius:999px;background:var(--ink);color:#fff;font:inherit;font-weight:700;cursor:pointer}
+  button.ghost{background:transparent;color:var(--ink);border:1px solid var(--ink)}
+  button:disabled{opacity:.6}
+  .note{color:var(--muted);font-size:11px;margin:6px 0 0}
+  .ok{color:#1f6a38}.err{color:#a32828}
+  ul{list-style:none;margin:0;padding:0}
+  li{padding:7px 0;border-bottom:1px solid var(--line)}
+  li b{display:block}
+  li small{color:var(--muted)}
+  .preview{background:var(--lime);border-radius:10px;padding:9px 10px;margin-top:10px;font-weight:700}
+</style>
+</head>
+<body>
+<header><b>The LinkedIn Masterclass</b><small>Private admin · only Sheet editors can see this</small></header>
+
+<section>
+  <h3>Registrations</h3>
+  <div class="stats" id="stats"><div class="stat big"><b>…</b><small>Loading</small></div></div>
+  <div id="roles" style="margin-top:12px"></div>
+  <button class="ghost" onclick="load()">Refresh</button>
+</section>
+
+<section>
+  <h3>Countdown</h3>
+  <label for="date">Date and time (in the timezone below)</label>
+  <input id="date" type="datetime-local">
+  <label for="zone">Timezone</label>
+  <select id="zone">
+    <option value="Asia/Kolkata">India (IST)</option>
+    <option value="Asia/Dubai">Dubai (GST)</option>
+    <option value="Asia/Singapore">Singapore (SGT)</option>
+    <option value="Europe/London">London (UK)</option>
+    <option value="America/New_York">New York (ET)</option>
+    <option value="America/Los_Angeles">Los Angeles (PT)</option>
+  </select>
+  <label for="duration">Duration</label>
+  <input id="duration" placeholder="90 minutes">
+  <label class="check"><input id="confirmed" type="checkbox"> Date is final (removes "to be confirmed")</label>
+  <label class="check"><input id="open" type="checkbox"> Registrations open</label>
+  <div class="preview" id="preview">–</div>
+  <button id="saveEvent" onclick="saveEvent()">Save countdown</button>
+  <p class="note">The live site picks up changes within about a minute.</p>
+</section>
+
+<section>
+  <h3>Photos</h3>
+  <label for="hero">Hero photo (path or https URL)</label>
+  <input id="hero" placeholder="assets/shreya-hero.jpg">
+  <label for="about">"Meet Shreya" photo</label>
+  <input id="about" placeholder="assets/shreya-about.jpg">
+  <p class="note">Use only photos Shreya has approved. Until a photo loads, the site shows a styled placeholder.</p>
+  <button onclick="savePhotos()">Save photos</button>
+</section>
+
+<section>
+  <h3>Emails</h3>
+  <label for="notify">Notify me of each signup at</label>
+  <input id="notify" type="email" placeholder="you@company.com">
+  <label class="check"><input id="confirm" type="checkbox"> Send registrants a confirmation email</label>
+  <label for="cnote">Extra line in the confirmation</label>
+  <input id="cnote">
+  <button onclick="saveEmails()">Save email settings</button>
+  <p class="note">Gmail accounts can send about 100 emails a day from Apps Script; Workspace accounts about 1,500.</p>
+</section>
+
+<section>
+  <h3>Latest signups</h3>
+  <ul id="recent"><li><small>Loading…</small></li></ul>
+  <p class="note">Full list: the Registrations tab.</p>
+</section>
+
+<p id="status" class="note" style="padding:0 16px 16px" role="status"></p>
+
+<script>
+  const $ = id => document.getElementById(id);
+  const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  let S = {};
+
+  function status(t, cls) { $('status').className = 'note ' + (cls || ''); $('status').textContent = t; }
+
+  // Wall-clock time in a timezone -> UTC ISO string.
+  function zonedToISO(local, zone) {
+    const [d, t] = local.split('T'); const [y, m, day] = d.split('-').map(Number); const [h, mi] = t.split(':').map(Number);
+    const want = Date.UTC(y, m - 1, day, h, mi); let utc = want;
+    for (let i = 0; i < 3; i++) {
+      const p = Object.fromEntries(new Intl.DateTimeFormat('en-US', { timeZone: zone, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).formatToParts(new Date(utc)).map(x => [x.type, Number(x.value)]));
+      utc += want - Date.UTC(p.year, p.month - 1, p.day, p.hour, p.minute);
+    }
+    return new Date(utc).toISOString();
+  }
+  // UTC ISO -> wall clock "YYYY-MM-DDTHH:MM" in a timezone.
+  function isoToZoned(iso, zone) {
+    const dt = new Date(iso); if (isNaN(dt)) return '';
+    const p = Object.fromEntries(new Intl.DateTimeFormat('en-CA', { timeZone: zone, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).formatToParts(dt).map(x => [x.type, x.value]));
+    return `${p.year}-${p.month}-${p.day}T${p.hour}:${p.minute}`;
+  }
+  function preview() {
+    const v = $('date').value, z = $('zone').value;
+    if (!v) { $('preview').textContent = 'Pick a date'; return; }
+    const dt = new Date(zonedToISO(v, z));
+    const shown = new Intl.DateTimeFormat('en-GB', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric', hour: 'numeric', minute: '2-digit', timeZone: z, timeZoneName: 'short' }).format(dt);
+    const days = Math.max(0, Math.floor((dt - Date.now()) / 86400000));
+    $('preview').textContent = shown + (($('confirmed').checked) ? '' : ' (to be confirmed)') + ' · ' + days + ' days away';
+  }
+  ['date', 'zone', 'confirmed'].forEach(id => $(id).addEventListener('input', preview));
+  $('zone').addEventListener('change', () => { if (S.eventDate) { $('date').value = isoToZoned(S.eventDate, $('zone').value); preview(); } });
+
+  function render(data) {
+    S = data.settings;
+    $('stats').innerHTML =
+      `<div class="stat big"><b>${data.total}</b><small>total registrations</small></div>` +
+      `<div class="stat"><b>${data.last24}</b><small>last 24 hours</small></div>` +
+      `<div class="stat"><b>${data.last7}</b><small>last 7 days</small></div>` +
+      `<div class="stat" style="grid-column:1/-1"><b>${data.optIn}</b><small>opted in to updates</small></div>`;
+    const entries = Object.entries(data.roles).sort((a, b) => b[1] - a[1]);
+    const max = Math.max(1, ...entries.map(e => e[1]));
+    $('roles').innerHTML = entries.length ? entries.map(([r, n]) =>
+      `<div class="bar"><span title="${esc(r)}">${esc(r)}</span><i style="width:${Math.round(n / max * 100)}px"></i><em>${n}</em></div>`).join('') : '<p class="note">No signups yet.</p>';
+    $('recent').innerHTML = data.recent.length ? data.recent.map(r =>
+      `<li><b>${esc(r.name)}</b><small>${esc(r.email)} · ${esc(r.role)} · ${new Date(r.at).toLocaleString()}</small></li>`).join('') : '<li><small>No signups yet.</small></li>';
+    $('zone').value = S.eventTimeZone || 'Asia/Kolkata';
+    $('date').value = isoToZoned(S.eventDate, $('zone').value);
+    $('duration').value = S.duration || '';
+    $('confirmed').checked = !!S.eventConfirmed;
+    $('open').checked = !!S.registrationOpen;
+    $('hero').value = S.heroPhoto || '';
+    $('about').value = S.aboutPhoto || '';
+    $('notify').value = S.notifyEmail || '';
+    $('confirm').checked = !!S.sendConfirmation;
+    $('cnote').value = S.confirmationNote || '';
+    preview();
+  }
+
+  function load() {
+    status('Loading…');
+    google.script.run.withSuccessHandler(d => { render(d); status('Updated ' + new Date().toLocaleTimeString(), 'ok'); })
+      .withFailureHandler(e => status(e.message, 'err')).adminGetData();
+  }
+  function save(changes, label) {
+    status('Saving…');
+    google.script.run.withSuccessHandler(s => { S = s; status(label + ' saved.', 'ok'); })
+      .withFailureHandler(e => status(e.message, 'err')).adminSaveSettings(changes);
+  }
+  function saveEvent() {
+    if (!$('date').value) { status('Pick a date first.', 'err'); return; }
+    save({ eventDate: zonedToISO($('date').value, $('zone').value), eventTimeZone: $('zone').value,
+      duration: $('duration').value.trim() || '90 minutes', eventConfirmed: $('confirmed').checked,
+      registrationOpen: $('open').checked }, 'Countdown');
+  }
+  function savePhotos() { save({ heroPhoto: $('hero').value.trim(), aboutPhoto: $('about').value.trim() }, 'Photos'); }
+  function saveEmails() { save({ notifyEmail: $('notify').value.trim(), sendConfirmation: $('confirm').checked, confirmationNote: $('cnote').value.trim() }, 'Email settings'); }
+  load();
+</script>
+</body>
+</html>
